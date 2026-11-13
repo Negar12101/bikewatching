@@ -5,6 +5,16 @@ import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm';
 mapboxgl.accessToken =
   'pk.eyJ1IjoibmFzaGt0b3JhYiIsImEiOiJjbXdlYzZ1OHowY3dtMnlweG9xcmh5ZjA1In0.vsw5Hay99OXhnWWmgRMiJg';
 
+// Page elements
+const slider = document.querySelector('#time-slider');
+const selectedTime = document.querySelector('#selected-time');
+const resetButton = document.querySelector('#reset-time');
+const status = document.querySelector('#status');
+const tooltip = document.querySelector('#station-tooltip');
+
+slider.disabled = true;
+resetButton.disabled = true;
+
 // Create map
 const map = new mapboxgl.Map({
   container: 'map',
@@ -18,14 +28,7 @@ map.addControl(
   'top-right'
 );
 
-// Time controls
-const slider = document.querySelector('#time-slider');
-const selectedTime = document.querySelector('#selected-time');
-const anyTime = document.querySelector('#any-time');
-
-slider.disabled = true;
-
-// Add a bike route layer
+// Add bike route layers
 function addBikeRoutes(id, url, filter) {
   map.addSource(id, {
     type: 'geojson',
@@ -56,27 +59,7 @@ function addBikeRoutes(id, url, filter) {
   map.addLayer(layer);
 }
 
-// Initialize after map loads
-map.on('load', async () => {
-  addBikeRoutes(
-    'boston-bike-routes',
-    'https://bostonopendata-boston.opendata.arcgis.com/datasets/boston::existing-bike-network-2022.geojson'
-  );
-
-  addBikeRoutes(
-    'cambridge-bike-routes',
-    'https://raw.githubusercontent.com/cambridgegis/cambridgegis_data/main/Recreation/Bike_Facilities/RECREATION_BikeFacilities.geojson',
-    [
-      '>',
-      ['coalesce', ['get', 'ExistingFacility'], 0],
-      0,
-    ]
-  );
-
-  await loadStationsAndTrips();
-});
-
-// Read the Boston clock time without timezone conversion
+// Extract Boston clock time from the source timestamp
 function minutesSinceMidnight(timestamp) {
   const match = String(timestamp).match(
     /[T ](\d{2}):(\d{2})/
@@ -96,7 +79,6 @@ function minutesSinceMidnight(timestamp) {
   return hours * 60 + minutes;
 }
 
-// Increment a station count
 function increment(counts, id) {
   if (!id) {
     return;
@@ -105,20 +87,94 @@ function increment(counts, id) {
   counts.set(id, (counts.get(id) ?? 0) + 1);
 }
 
+function formatTime(minute) {
+  const hours = String(
+    Math.floor(minute / 60)
+  ).padStart(2, '0');
+
+  const minutes = String(
+    minute % 60
+  ).padStart(2, '0');
+
+  return `${hours}:${minutes}`;
+}
+
+function hideTooltip() {
+  tooltip.hidden = true;
+}
+
+function showTooltip(event, station) {
+  tooltip.textContent =
+    `${station.name}\n` +
+    `Departures: ${station.departures.toLocaleString()}\n` +
+    `Arrivals: ${station.arrivals.toLocaleString()}\n` +
+    `Total: ${station.totalTraffic.toLocaleString()}`;
+
+  tooltip.hidden = false;
+
+  const box = tooltip.getBoundingClientRect();
+
+  const left = Math.max(
+    8,
+    Math.min(
+      event.clientX + 14,
+      window.innerWidth - box.width - 8
+    )
+  );
+
+  const top = Math.max(
+    8,
+    Math.min(
+      event.clientY + 14,
+      window.innerHeight - box.height - 8
+    )
+  );
+
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+// Load map layers and station data
+map.on('load', async () => {
+  addBikeRoutes(
+    'boston-bike-routes',
+    'https://bostonopendata-boston.opendata.arcgis.com/datasets/boston::existing-bike-network-2022.geojson'
+  );
+
+  addBikeRoutes(
+    'cambridge-bike-routes',
+    'https://raw.githubusercontent.com/cambridgegis/cambridgegis_data/main/Recreation/Bike_Facilities/RECREATION_BikeFacilities.geojson',
+    [
+      '>',
+      ['coalesce', ['get', 'ExistingFacility'], 0],
+      0,
+    ]
+  );
+
+  await loadStationsAndTrips();
+});
+
 async function loadStationsAndTrips() {
   try {
-    console.log('Loading stations and trips...');
+    status.textContent =
+      'Loading bike data… This may take a moment.';
 
     const [json, trips] = await Promise.all([
       d3.json(
         'https://dsc106.com/labs/lab07/data/bluebikes-stations.json'
       ),
+
       d3.csv(
         'https://dsc106.com/labs/lab07/data/bluebikes-traffic-2024-03.csv'
       ),
     ]);
 
     const stations = json.data.stations
+      .filter(
+        (station) =>
+          station.lat != null &&
+          station.lon != null
+      )
       .map((station) => ({
         ...station,
         lat: Number(station.lat),
@@ -133,7 +189,7 @@ async function loadStationsAndTrips() {
           Number.isFinite(station.lon)
       );
 
-    // Index events by minute for responsive filtering
+    // Pre-index events for fast slider updates
     const departuresByMinute = Array.from(
       { length: 1440 },
       () => []
@@ -172,20 +228,7 @@ async function loadStationsAndTrips() {
       }
     }
 
-    // Circle area represents total traffic
-    const maxTraffic = d3.max(
-      stations,
-      (station) =>
-        (allDepartures.get(station.short_name) ?? 0) +
-        (allArrivals.get(station.short_name) ?? 0)
-    );
-
-    const radiusScale = d3
-      .scaleSqrt()
-      .domain([0, maxTraffic || 1])
-      .range([0, 25]);
-
-    // SVG station overlay
+    // SVG overlay
     const svg = d3
       .select(map.getCanvasContainer())
       .append('svg')
@@ -194,14 +237,22 @@ async function loadStationsAndTrips() {
     const circles = svg
       .selectAll('circle')
       .data(stations, (d) => d.station_id)
-      .join('circle')
-      .attr('fill-opacity', 0.75)
-      .attr('stroke', 'white')
-      .attr('stroke-width', 1);
+      .join('circle');
 
-    circles.append('title');
+    // Instant hover and tap information
+    circles
+      .on('pointerenter', showTooltip)
+      .on('pointermove', showTooltip)
+      .on('pointerleave', hideTooltip)
+      .on('click', (event, station) => {
+        event.stopPropagation();
+        showTooltip(event, station);
+      });
 
-    // Keep circles aligned with geographic locations
+    const radiusScale = d3
+      .scaleSqrt()
+      .range([0, 25]);
+
     function updatePositions() {
       circles.each(function (station) {
         const point = map.project([
@@ -215,33 +266,32 @@ async function loadStationsAndTrips() {
       });
     }
 
-    // Update traffic using the selected time
     function updateTraffic() {
+      hideTooltip();
+
       const minute = Number(slider.value);
+      const showAll = minute === -1;
 
       let departures = allDepartures;
       let arrivals = allArrivals;
 
-      selectedTime.hidden = minute === -1;
-      anyTime.hidden = minute !== -1;
+      selectedTime.textContent = showAll
+        ? 'Any time'
+        : `${formatTime(minute)} · Boston time`;
 
-      if (minute !== -1) {
-        const hours = String(
-          Math.floor(minute / 60)
-        ).padStart(2, '0');
+      slider.setAttribute(
+        'aria-valuetext',
+        showAll
+          ? 'Any time'
+          : `${formatTime(minute)}, Boston time`
+      );
 
-        const minutes = String(
-          minute % 60
-        ).padStart(2, '0');
-
-        selectedTime.dateTime = `${hours}:${minutes}`;
-        selectedTime.textContent =
-          `${hours}:${minutes} (Boston time, ±60 min)`;
-
+      if (!showAll) {
         departures = new Map();
         arrivals = new Map();
 
-        // Two-hour window, wrapping around midnight
+        // Include each minute within ±60 minutes.
+        // Wrap around midnight.
         for (let offset = -60; offset <= 60; offset++) {
           const bucket =
             (minute + offset + 1440) % 1440;
@@ -267,8 +317,20 @@ async function loadStationsAndTrips() {
           station.departures + station.arrivals;
       }
 
+      // Rescale sizes for the current selection
+      const currentMax =
+        d3.max(stations, (d) => d.totalTraffic) || 1;
+
+      radiusScale
+        .domain([0, currentMax])
+        .range([0, showAll ? 25 : 18]);
+
       circles
         .attr('r', (d) => radiusScale(d.totalTraffic))
+        .attr(
+          'display',
+          (d) => d.totalTraffic > 0 ? null : 'none'
+        )
         .style('--departure-ratio', (d) => {
           const ratio = d.totalTraffic
             ? d.departures / d.totalTraffic
@@ -288,31 +350,62 @@ async function loadStationsAndTrips() {
           (a, b) => b.totalTraffic - a.totalTraffic
         );
 
-      // Update station tooltips
-      circles
-        .select('title')
-        .text(
-          (d) =>
-            `${d.name}\n` +
-            `${d.totalTraffic.toLocaleString()} total arrivals and departures\n` +
-            `${d.departures.toLocaleString()} departures\n` +
-            `${d.arrivals.toLocaleString()} arrivals`
-        );
+      const activeStations = stations.filter(
+        (station) => station.totalTraffic > 0
+      ).length;
+
+      status.textContent = showAll
+        ? `${activeStations} stations with recorded traffic · March 2024 · All times`
+        : `${activeStations} stations with recorded traffic · Within 60 minutes of ${formatTime(minute)} across March 2024`;
+
+      updatePositions();
     }
+
+    // Update at most once per animation frame
+    let pendingFrame = null;
+
+    slider.addEventListener('input', () => {
+      hideTooltip();
+
+      if (pendingFrame !== null) {
+        return;
+      }
+
+      pendingFrame = requestAnimationFrame(() => {
+        pendingFrame = null;
+        updateTraffic();
+      });
+    });
+
+    resetButton.addEventListener('click', () => {
+      slider.value = '-1';
+      updateTraffic();
+    });
+
+    map.on('move', updatePositions);
+    map.on('resize', updatePositions);
+    map.on('movestart', hideTooltip);
+    map.on('click', hideTooltip);
+
+    window.addEventListener('scroll', hideTooltip, {
+      passive: true,
+    });
+
+    window.addEventListener('resize', hideTooltip);
 
     updatePositions();
     updateTraffic();
 
-    map.on('move', updatePositions);
-    map.on('resize', updatePositions);
-
     slider.disabled = false;
-    slider.addEventListener('input', updateTraffic);
+    resetButton.disabled = false;
 
     console.log(`Loaded ${trips.length} trips.`);
-    console.log(`Displayed ${stations.length} stations.`);
+    console.log(`Loaded ${stations.length} stations.`);
   } catch (error) {
     console.error('Could not load bike data:', error);
+
+    status.textContent =
+      'Could not load bike data. Check the browser Console.';
   }
 }
 
