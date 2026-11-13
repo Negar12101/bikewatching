@@ -4,72 +4,24 @@
 
 body {
   font: 100%/1.5 system-ui, sans-serif;
-  display: flex;
-  flex-direction: column;
   max-width: 80em;
   min-height: 100vh;
   margin: auto;
-  padding: 1em;
-}
-
-h1 {
-  line-height: 1.1;
-}
-
-header p {
-  color: #555;
-}
-#map {
-  width: 100%;
-  height: 70vh;
-  min-height: 400px;
-  margin-top: 1rem;
-  border-radius: 12px;
-}
-#map .station-overlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-#map .station-overlay circle {
-  pointer-events: auto;
-}
-/* Lavender theme */
-body {
-  background-color: #faf7fd;
+  padding: 1.25rem;
+  background: #faf7fd;
   color: #382447;
 }
 
 h1 {
   color: #75429a;
+  line-height: 1.1;
 }
 
 header p {
   color: #80698e;
 }
 
-#map {
-  border: 2px solid #e7d5f2;
-  border-radius: 20px;
-  box-shadow: 0 8px 28px rgb(117 66 154 / 12%);
-}
-
-#map .station-overlay circle {
-  fill: #9b59b6;
-  fill-opacity: 0.75;
-  stroke: #ffffff;
-  stroke-width: 1;
-}
-
-#map .station-overlay circle:hover {
-  fill: #e75b9b;
-  fill-opacity: 1;
-  stroke: #75429a;
-  stroke-width: 2;
-}
+/* Time filter */
 .time-filter {
   display: flex;
   align-items: center;
@@ -91,8 +43,45 @@ header p {
 #selected-time {
   font-weight: 700;
 }
+
+[hidden] {
+  display: none !important;
+}
+
+/* Map */
+#map {
+  position: relative;
+  width: 100%;
+  height: 70vh;
+  min-height: 400px;
+  margin-top: 1rem;
+  overflow: hidden;
+  border: 2px solid #e7d5f2;
+  border-radius: 20px;
+  box-shadow: 0 8px 28px rgb(117 66 154 / 12%);
+}
+
+/* Station overlay */
+#map .station-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+#map .station-overlay circle {
+  pointer-events: auto;
+  fill: var(--flow-color);
+  fill-opacity: 0.75;
+  stroke: white;
+  stroke-width: 1;
+}
+
+/* Shared map and legend colors */
 #map .station-overlay circle,
 .legend > div {
+  --departure-ratio: 0.5;
   --color-departures: #7541a6;
   --color-arrivals: #e56a9b;
 
@@ -103,17 +92,13 @@ header p {
   );
 }
 
-#map .station-overlay circle {
-  fill: var(--flow-color);
-}
-
 #map .station-overlay circle:hover {
-  fill: var(--flow-color);
   fill-opacity: 1;
   stroke: #382447;
   stroke-width: 2;
 }
 
+/* Legend */
 .legend {
   display: flex;
   flex-wrap: wrap;
