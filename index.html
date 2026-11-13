@@ -1,17 +1,51 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bikewatching — Negar</title>
+
+  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+
+  <link
+    rel="stylesheet"
+    href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css"
+  >
+
   <link rel="stylesheet" href="./global.css">
+  <script type="module" src="./map.js"></script>
 </head>
 <body>
   <header>
     <h1>🚲 Bikewatching</h1>
-    <p>
-      Explore bike traffic patterns in Boston and Cambridge.
-    </p>
+    <p>Explore bike traffic patterns in Boston and Cambridge.</p>
   </header>
+<label class="time-filter" for="time-slider">
+  <span>Filter by time:</span>
+
+  <input
+    id="time-slider"
+    type="range"
+    min="-1"
+    max="1439"
+    value="-1"
+    step="1"
+  >
+
+  <time id="selected-time" hidden></time>
+  <em id="any-time">Any time</em>
+</label>
+  <div id="map" aria-label="Map of Boston and Cambridge"></div>
+  <div class="legend" aria-label="Station traffic colors">
+  <span>Station flow:</span>
+  <div style="--departure-ratio: 1">More departures</div>
+  <div style="--departure-ratio: 0.5">Balanced</div>
+  <div style="--departure-ratio: 0">More arrivals</div>
+</div>
+
+<p class="map-note">
+  Circle area represents total arrivals and departures.
+  Hover over a station for details.
+</p>
 </body>
 </html>
