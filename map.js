@@ -1,9 +1,11 @@
 import mapboxgl from 'https://cdn.jsdelivr.net/npm/mapbox-gl@2.15.0/+esm';
 import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm';
 
+// Mapbox public token
 mapboxgl.accessToken =
   'pk.eyJ1IjoibmFzaGt0b3JhYiIsImEiOiJjbXdlYzZ1OHowY3dtMnlweG9xcmh5ZjA1In0.vsw5Hay99OXhnWWmgRMiJg';
 
+// Create map
 const map = new mapboxgl.Map({
   container: 'map',
   style: 'mapbox://styles/mapbox/streets-v12',
@@ -16,68 +18,91 @@ map.addControl(
   'top-right'
 );
 
+// Time controls
 const slider = document.querySelector('#time-slider');
 const selectedTime = document.querySelector('#selected-time');
 const anyTime = document.querySelector('#any-time');
 
 slider.disabled = true;
 
-map.on('load', async () => {
-  map.addSource('boston-bike-routes', {
+// Add a bike route layer
+function addBikeRoutes(id, url, filter) {
+  map.addSource(id, {
     type: 'geojson',
-    data: 'https://bostonopendata-boston.opendata.arcgis.com/datasets/boston::existing-bike-network-2022.geojson',
+    data: url,
   });
 
-  map.addLayer({
-    id: 'boston-bike-lanes',
+  const layer = {
+    id: `${id}-layer`,
     type: 'line',
-    source: 'boston-bike-routes',
+    source: id,
+
     layout: {
       'line-cap': 'round',
       'line-join': 'round',
     },
+
     paint: {
       'line-color': '#279447',
       'line-width': 3,
       'line-opacity': 0.65,
     },
-  });
-  // Cambridge bike routes
-  map.addSource('cambridge-bike-routes', {
-    type: 'geojson',
-    data: 'https://raw.githubusercontent.com/cambridgegis/cambridgegis_data/main/Recreation/Bike_Facilities/RECREATION_BikeFacilities.geojson',
-  });
+  };
 
-  map.addLayer({
-    id: 'cambridge-bike-lanes',
-    type: 'line',
-    source: 'cambridge-bike-routes',
-    filter: [
+  if (filter) {
+    layer.filter = filter;
+  }
+
+  map.addLayer(layer);
+}
+
+// Initialize after map loads
+map.on('load', async () => {
+  addBikeRoutes(
+    'boston-bike-routes',
+    'https://bostonopendata-boston.opendata.arcgis.com/datasets/boston::existing-bike-network-2022.geojson'
+  );
+
+  addBikeRoutes(
+    'cambridge-bike-routes',
+    'https://raw.githubusercontent.com/cambridgegis/cambridgegis_data/main/Recreation/Bike_Facilities/RECREATION_BikeFacilities.geojson',
+    [
       '>',
       ['coalesce', ['get', 'ExistingFacility'], 0],
       0,
-    ],
-    layout: {
-      'line-cap': 'round',
-      'line-join': 'round',
-    },
-    paint: {
-      'line-color': '#279447',
-      'line-width': 3,
-      'line-opacity': 0.65,
-    },
-  });
+    ]
+  );
+
   await loadStationsAndTrips();
 });
 
-// Read Boston clock time directly from the timestamp.
-// This avoids changing the time to the viewer's timezone.
+// Read the Boston clock time without timezone conversion
 function minutesSinceMidnight(timestamp) {
-  const match = timestamp.match(/[T ](\d{2}):(\d{2})/);
+  const match = String(timestamp).match(
+    /[T ](\d{2}):(\d{2})/
+  );
 
-  return match
-    ? Number(match[1]) * 60 + Number(match[2])
-    : null;
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+
+  if (hours > 23 || minutes > 59) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+// Increment a station count
+function increment(counts, id) {
+  if (!id) {
+    return;
+  }
+
+  counts.set(id, (counts.get(id) ?? 0) + 1);
 }
 
 async function loadStationsAndTrips() {
@@ -108,7 +133,7 @@ async function loadStationsAndTrips() {
           Number.isFinite(station.lon)
       );
 
-    // Group events by minute for faster filtering.
+    // Index events by minute for responsive filtering
     const departuresByMinute = Array.from(
       { length: 1440 },
       () => []
@@ -122,16 +147,17 @@ async function loadStationsAndTrips() {
     const allDepartures = new Map();
     const allArrivals = new Map();
 
-    function increment(counts, id) {
-      counts.set(id, (counts.get(id) ?? 0) + 1);
-    }
-
     for (const trip of trips) {
       increment(allDepartures, trip.start_station_id);
       increment(allArrivals, trip.end_station_id);
 
-      const startMinute = minutesSinceMidnight(trip.started_at);
-      const endMinute = minutesSinceMidnight(trip.ended_at);
+      const startMinute = minutesSinceMidnight(
+        trip.started_at
+      );
+
+      const endMinute = minutesSinceMidnight(
+        trip.ended_at
+      );
 
       if (startMinute !== null) {
         departuresByMinute[startMinute].push(
@@ -146,22 +172,7 @@ async function loadStationsAndTrips() {
       }
     }
 
-    const svg = d3
-      .select(map.getCanvasContainer())
-      .append('svg')
-      .attr('class', 'station-overlay');
-
-    const circles = svg
-      .selectAll('circle')
-      .data(stations, (d) => d.station_id)
-      .join('circle')
-      .attr('fill', '#9b59b6')
-      .attr('fill-opacity', 0.75)
-      .attr('stroke', 'white')
-      .attr('stroke-width', 1);
-
-    circles.append('title');
-
+    // Circle area represents total traffic
     const maxTraffic = d3.max(
       stations,
       (station) =>
@@ -174,6 +185,23 @@ async function loadStationsAndTrips() {
       .domain([0, maxTraffic || 1])
       .range([0, 25]);
 
+    // SVG station overlay
+    const svg = d3
+      .select(map.getCanvasContainer())
+      .append('svg')
+      .attr('class', 'station-overlay');
+
+    const circles = svg
+      .selectAll('circle')
+      .data(stations, (d) => d.station_id)
+      .join('circle')
+      .attr('fill-opacity', 0.75)
+      .attr('stroke', 'white')
+      .attr('stroke-width', 1);
+
+    circles.append('title');
+
+    // Keep circles aligned with geographic locations
     function updatePositions() {
       circles.each(function (station) {
         const point = map.project([
@@ -187,6 +215,7 @@ async function loadStationsAndTrips() {
       });
     }
 
+    // Update traffic using the selected time
     function updateTraffic() {
       const minute = Number(slider.value);
 
@@ -205,16 +234,17 @@ async function loadStationsAndTrips() {
           minute % 60
         ).padStart(2, '0');
 
+        selectedTime.dateTime = `${hours}:${minutes}`;
         selectedTime.textContent =
           `${hours}:${minutes} (Boston time, ±60 min)`;
 
         departures = new Map();
         arrivals = new Map();
 
-        // Include events within 60 minutes on either side.
-        // Wrap around midnight.
+        // Two-hour window, wrapping around midnight
         for (let offset = -60; offset <= 60; offset++) {
-          const bucket = (minute + offset + 1440) % 1440;
+          const bucket =
+            (minute + offset + 1440) % 1440;
 
           for (const id of departuresByMinute[bucket]) {
             increment(departures, id);
@@ -238,17 +268,27 @@ async function loadStationsAndTrips() {
       }
 
       circles
-circles
-  .attr('r', (d) => radiusScale(d.totalTraffic))
-  .style('--departure-ratio', (d) => {
-    const ratio = d.totalTraffic
-      ? d.departures / d.totalTraffic
-      : 0.5;
+        .attr('r', (d) => radiusScale(d.totalTraffic))
+        .style('--departure-ratio', (d) => {
+          const ratio = d.totalTraffic
+            ? d.departures / d.totalTraffic
+            : 0.5;
 
-    return ratio < 0.4 ? 0 : ratio > 0.6 ? 1 : 0.5;
-  })
-  .sort((a, b) => b.totalTraffic - a.totalTraffic);
+          if (ratio < 0.4) {
+            return 0;
+          }
 
+          if (ratio > 0.6) {
+            return 1;
+          }
+
+          return 0.5;
+        })
+        .sort(
+          (a, b) => b.totalTraffic - a.totalTraffic
+        );
+
+      // Update station tooltips
       circles
         .select('title')
         .text(
