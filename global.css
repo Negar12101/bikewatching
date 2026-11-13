@@ -1,0 +1,21 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font: 100%/1.5 system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  max-width: 80em;
+  min-height: 100vh;
+  margin: auto;
+  padding: 1em;
+}
+
+h1 {
+  line-height: 1.1;
+}
+
+header p {
+  color: #555;
+}
